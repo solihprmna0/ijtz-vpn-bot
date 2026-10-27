@@ -29,7 +29,7 @@ if (!TELEGRAM_TOKEN) {
     throw new Error("TELEGRAM_TOKEN belum diatur. Tambahkan token bot melalui Environment Variables Vercel.");
 }
 
-// Inisialisasi bot TANPA polling karena berjalan di Vercel (Serverless)
+// Inisialisasi bot MURNI TANPA POLLING (Wajib untuk Vercel Serverless)
 const bot = new TelegramBot(TELEGRAM_TOKEN);
 
 const BOT_NAME = "IJTZ VPN STORE";
@@ -191,15 +191,6 @@ async function createQiospayTopup(chatId, userId, amount) {
     }
 }
 
-async function sendAdditionalAccountFields(chatId, fields) {
-    if (!fields.length) return;
-    let message = "🧩 Detail tambahan akun:\n";
-    for (const [label, value] of fields) {
-        message += `${label}: ${value}\n`;
-    }
-    await bot.sendMessage(chatId, message);
-}
-
 async function sendMainMenu(chatId, userId, firstName) {
     const balance = await getBalance(userId);
     const isAdmin = Number(userId) === ADMIN_ID;
@@ -242,7 +233,7 @@ async function sendMainMenu(chatId, userId, firstName) {
     });
 }
 
-// Handler logic untuk update Telegram
+// Handler update Telegram via Webhook
 async function handleTelegramUpdate(update) {
     if (update.message) {
         const msg = update.message;
@@ -326,7 +317,49 @@ async function handleTelegramUpdate(update) {
             bot.deleteMessage(chatId, messageId).catch(() => {});
             userSessions[userId].awaitingInput = null;
             await sendMainMenu(chatId, userId, query.from.first_name || "User");
-        } else if (["menu_buat_akun", "menu_renew", "menu_trial"].includes(data)) {
+        } else if (data === "menu_cek_server") {
+            const servers = await getServers();
+            let text = "📊 <b>Status Server VPN:</b>\n\n";
+            if (servers && servers.length > 0) {
+                servers.forEach(s => {
+                    text += `🔹 <b>${s.name || s.domain}</b>\n   Status: Online\n`;
+                });
+            } else {
+                text += "Tidak ada server aktif.";
+            }
+            bot.editMessageText(text, {
+                chat_id: chatId, message_id: messageId, parse_mode: 'HTML',
+                reply_markup: { inline_keyboard: [[{ text: "⬅️ Menu Utama", callback_data: "menu_main" }]] }
+            });
+        } else if (data === "menu_trial") {
+            userSessions[userId].category = "trial";
+            userSessions[userId].protocol = "vless";
+            const servers = await getServers();
+            const keyboard = (servers || []).map(s => [{ text: s.name || s.domain, callback_data: `select_trial_${s.server_id || s.id}` }]);
+            keyboard.push([{ text: "⬅️ Menu Utama", callback_data: "menu_main" }]);
+            bot.editMessageText("🎁 <b>Pilih Server untuk Akun Trial:</b>", {
+                chat_id: chatId, message_id: messageId, parse_mode: 'HTML',
+                reply_markup: { inline_keyboard: keyboard }
+            });
+        } else if (data.startsWith("select_trial_")) {
+            const serverId = data.split("_")[2];
+            const trialRes = await checkAndSetTrial(userId);
+            if (!trialRes.allowed) {
+                return bot.sendMessage(chatId, `❌ ${trialRes.message || 'Anda sudah mengambil kuota trial.'}`);
+            }
+            const username = `trial${Math.floor(1000 + Math.random() * 9000)}`;
+            const loadMsg = await bot.sendMessage(chatId, `⏳ <b>Memproses akun trial...</b>`, { parse_mode: 'HTML' });
+            let result = await createVpnAccount(serverId, "vless", true, 'hour', 1, username, "123456");
+            bot.deleteMessage(chatId, loadMsg.message_id).catch(() => {});
+            if (isSuccessfulAccountResponse(result)) {
+                bot.sendMessage(chatId, `✅ <b>Trial Berhasil Dibuat!</b>\nUsername: <code>${username}</code>`, {
+                    parse_mode: 'HTML',
+                    reply_markup: { inline_keyboard: [[{ text: "⬅️ Menu Utama", callback_data: "menu_main" }]] }
+                });
+            } else {
+                bot.sendMessage(chatId, `❌ Gagal membuat akun trial.`);
+            }
+        } else if (["menu_buat_akun", "menu_renew"].includes(data)) {
             userSessions[userId].actionType = data;
             let title = "➕ <b>Pilih Kategori Server:</b>";
             bot.editMessageText(title, {
@@ -355,7 +388,7 @@ async function handleTelegramUpdate(update) {
             const protocol = data.split("_")[1];
             userSessions[userId].protocol = protocol;
             const servers = await getServers();
-            const keyboard = servers.map(s => [{ text: s.name || s.domain, callback_data: `select_srv_${s.server_id || s.id}` }]);
+            const keyboard = (servers || []).map(s => [{ text: s.name || s.domain, callback_data: `select_srv_${s.server_id || s.id}` }]);
             keyboard.push([{ text: "⬅️ Kembali", callback_data: `cat_${userSessions[userId].category}` }]);
             bot.editMessageText(`🌐 <b>Pilih Server (${protocol.toUpperCase()}):</b>`, {
                 chat_id: chatId, message_id: messageId, parse_mode: 'HTML',
@@ -388,7 +421,6 @@ async function processAccountCreation(chatId, userId) {
     let result = await createVpnAccount(serverId, protocol, false, 'day', 1, username, password);
 
     if (isSuccessfulAccountResponse(result)) {
-        const acc = unwrapAccountResponse(result);
         bot.deleteMessage(chatId, loadMsg.message_id).catch(() => {});
         bot.sendMessage(chatId, `✅ <b>Akun Berhasil Dibuat!</b>\nUsername: <code>${username}</code>`, {
             parse_mode: 'HTML',
@@ -432,7 +464,6 @@ app.get('/healthz', (_req, res) => {
     res.status(200).json({ status: "ok", mode: "webhook" });
 });
 
-// Jalankan server lokal jika diuji di luar Vercel
 const PORT = process.env.PORT || 3000;
 if (process.env.NODE_ENV !== 'production') {
     app.listen(PORT, '0.0.0.0', () => {
