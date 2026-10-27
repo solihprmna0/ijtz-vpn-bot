@@ -1,0 +1,19 @@
+{
+  "name": "bot-vpn-nadia",
+  "version": "1.0.0",
+  "main": "app.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "body-parser": "^2.4.0",
+    "express": "^5.3.0",
+    "form-data": "^4.0.0",
+    "node-telegram-bot-api": "^0.66.0"
+  },
+  "overrides": {
+    "form-data": "^4.0.0",
+    "request": "^2.88.2"
+  }
+}
