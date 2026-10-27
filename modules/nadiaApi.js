@@ -2,7 +2,7 @@ const axios = require('axios');
 
 const NADIA_API_TOKEN = process.env.NADIA_API_TOKEN;
 if (!NADIA_API_TOKEN) {
-    throw new Error("NADIA_API_TOKEN belum diatur. Tambahkan token NadiaVPN melalui Replit Secrets.");
+    throw new Error("NADIA_API_TOKEN belum diatur. Tambahkan token NadiaVPN melalui Environment Variables Vercel.");
 }
 const BASE_URL = "https://www.nadiavpn.web.id/api/v1";
 
@@ -42,7 +42,7 @@ async function getServers() {
         if (res.status !== 200 || !res.data) return [];
         return extractServerList(res.data);
     } catch (err) {
-        console.error("Error getServers:", err.message);
+        console.error("Error getServers:", err.response?.status, err.message);
         return [];
     }
 }
